@@ -71,12 +71,12 @@ class ResearchPaperRAG:
         )
 
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Loading SPECTER embedding model...")
+        self.logger.info("Loading embedding model...")
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained('allenai/specter')
-            self.embedding_model = AutoModel.from_pretrained('allenai/specter')
+            self.tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+            self.embedding_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
         except Exception as e:
-            self.logger.warning(f"Failed to load allenai/specter: {e}. Falling back to bert-base-uncased.")
+            self.logger.warning(f"Failed to load all-MiniLM-L6-v2: {e}. Falling back to bert-base-uncased.")
             self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
             self.embedding_model = AutoModel.from_pretrained('bert-base-uncased')
         self.embedding_model.eval()
@@ -189,7 +189,7 @@ class ResearchPaperRAG:
         texts = [f"{chunk.section}: {chunk.text}" for chunk in chunks]
         embeddings = []
 
-        batch_size = 16
+        batch_size = 8  # Reduced batch size for faster CPU processing
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
             inputs = self.tokenizer(
@@ -319,9 +319,7 @@ ANSWER:"""
     def evaluate_response(self, query: str, answer: str, context_chunks: List[ResearchChunk]) -> Dict:
         """Evaluate the LLM response using RAGAs metrics."""
         contexts = [chunk.text for chunk in context_chunks if chunk.text.strip()]
-        print(contexts)
         ground_truth = " ".join(contexts) if contexts else "No relevant context found."
-        print(ground_truth)
         if not contexts or all("publication date" in ctx.lower() for ctx in contexts):
             self.logger.warning("Retrieved contexts are uninformative (e.g., only publication dates)")
             return {
