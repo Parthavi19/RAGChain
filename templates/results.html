@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Query Results</h1>
+        <a href="{{ url_for('index') }}">Back to Home</a>
+        
+        <section class="metadata">
+            <h2>Paper Metadata</h2>
+            <p><strong>Title:</strong> {{ result.metadata.title|default('Unknown') }}</p>
+            <p><strong>Authors:</strong> {{ result.metadata.authors|default('Unknown') }}</p>
+            <p><strong>Abstract:</strong> {{ result.metadata.abstract|default('Not extracted') }}</p>
+        </section>
+        
+        <section class="query-results">
+            <h2>Query Results</h2>
+            <p><strong>Question:</strong> {{ question }}</p>
+            <p><strong>Answer:</strong></p>
+            <div>{{ result.answer|safe }}</div>
+            <p><strong>Confidence:</strong> {{ result.confidence|round(1) }}%</p>
+        </section>
+        
+        <section class="evaluation-metrics">
+            <h2>Evaluation Metrics</h2>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Score (0.0–1.0)</th>
+                </tr>
+                <tr>
+                    <td>Context Precision</td>
+                    <td>{{ result.evaluation.context_precision|default(0.0)|round(2) }}</td>
+                </tr>
+                <tr>
+                    <td>Context Recall</td>
+                    <td>{{ result.evaluation.context_recall|default(0.0)|round(2) }}</td>
+                </tr>
+                <tr>
+                    <td>Response Relevancy</td>
+                    <td>{{ result.evaluation.response_relevancy|default(0.0)|round(2) }}</td>
+                </tr>
+                <tr>
+                    <td>Faithfulness</td>
+                    <td>{{ result.evaluation.faithfulness|default(0.0)|round(2) }}</td>
+                </tr>
+            </table>
+        </section>
+        
+        <section class="sources">
+            <h2>Sources</h2>
+            {% if result.sources %}
+                <ul>
+                    {% for source in result.sources %}
+                        <li>
+                            <strong>{{ source.rank }}. {{ source.section }} (Page {{ source.page }})</strong>
+                            <p><strong>Relevance Score:</strong> {{ source.relevance_score|round(3) }}</p>
+                            <p>{{ source.text }}</p>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No sources found.</p>
+            {% endif %}
+        </section>
+    </div>
+</body>
+</html>
