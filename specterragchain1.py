@@ -18,7 +18,7 @@ import time
 import google.api_core.exceptions
 import pkg_resources
 from ragas.metrics import context_precision, context_recall, answer_relevancy, faithfulness
-from docling import Document
+import fitz
 
 # Download NLTK resources
 try:
@@ -116,13 +116,13 @@ class ResearchPaperRAG:
         return text.strip()
 
     def extract_metadata_and_text(self, pdf_path: str) -> List[Dict]:
-        self.logger.info(f"Extracting text using docling 2.40.0: {pdf_path}")
+        self.logger.info(f"Extracting text using PyMuPDF: {pdf_path}")
         pages_text = []
 
         try:
-            doc = Document(pdf_path)
-            for page_num, page in enumerate(doc.pages):
-                text = page.text
+            doc = fitz.open(pdf_path)
+            for page_num, page in enumerate(doc):
+                text = page.get_text()
                 if text:
                     cleaned_text = self.clean_text(text)
                     section = self._infer_section(cleaned_text, page_num)
@@ -133,8 +133,10 @@ class ResearchPaperRAG:
                     })
                 else:
                     self.logger.warning(f"[WARNING] Page {page_num + 1} returned no text.")
+            doc.close()
+
         except Exception as e:
-            self.logger.error(f"[ERROR] docling failed to extract PDF: {e}")
+            self.logger.error(f"[ERROR] PyMuPDF failed to extract PDF: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
             raise
