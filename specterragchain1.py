@@ -19,6 +19,7 @@ import time
 import google.api_core.exceptions
 import pkg_resources
 from ragas.metrics import context_precision, context_recall, answer_relevancy, faithfulness
+from docling import Document
 
 # Download NLTK resources
 try:
@@ -116,24 +117,29 @@ class ResearchPaperRAG:
         return text.strip()
 
     def extract_metadata_and_text(self, pdf_path: str) -> List[Dict]:
-        self.logger.info(f"Extracting text from PDF: {pdf_path}")
+        self.logger.info(f"Extracting text using docling 2.40.0: {pdf_path}")
         pages_text = []
+
         try:
-            with open(pdf_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                for page_num, page in enumerate(pdf_reader.pages):
-                    text = page.extract_text()
-                    if text:
-                        cleaned_text = self.clean_text(text)
-                        section = self._infer_section(cleaned_text, page_num)
-                        pages_text.append({
-                            'text': cleaned_text,
-                            'page_number': page_num + 1,
-                            'section': section
-                        })
+            doc = Document(pdf_path)
+            for page_num, page in enumerate(doc.pages):
+                text = page.text
+                if text:
+                    cleaned_text = self.clean_text(text)
+                    section = self._infer_section(cleaned_text, page_num)
+                    pages_text.append({
+                        'text': cleaned_text,
+                        'page_number': page_num + 1,
+                        'section': section
+                    })
+                else:
+                    self.logger.warning(f"[WARNING] Page {page_num + 1} returned no text.")
         except Exception as e:
-            self.logger.error(f"Error reading PDF: {e}")
+            self.logger.error(f"[ERROR] docling failed to extract PDF: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             raise
+
         return pages_text
 
     def _infer_section(self, text: str, page_num: int) -> str:
