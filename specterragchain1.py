@@ -3,7 +3,6 @@ import os
 import google.generativeai as genai
 import numpy as np
 import faiss
-import PyPDF2
 import re
 import nltk
 from typing import List, Dict, Tuple
