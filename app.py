@@ -58,16 +58,25 @@ def query():
     global rag
     if rag is None:
         return jsonify({'error': 'No document loaded. Please upload a PDF first.'}), 400
-    data = request.get_json()
-    question = data.get('question', '')
-    if not question.strip():
-        return jsonify({'error': 'Please provide a valid question'}), 400
+
     try:
+        logger.info("Incoming request headers: %s", request.headers)
+        logger.info("Raw body: %s", request.data)
+
+        data = request.get_json(force=True, silent=False)
+        logger.info("Parsed JSON: %s", data)
+
+        question = data.get('question', '')
+        if not question.strip():
+            return jsonify({'error': 'Please provide a valid question'}), 400
+
         result = rag.query(question)
         return jsonify(result), 200
+
     except Exception as e:
         logger.error(f"Error processing query: {e}")
         return jsonify({'error': f"Error processing query: {str(e)}"}), 500
+
 
 @app.route('/results', methods=['GET'])
 def results():
