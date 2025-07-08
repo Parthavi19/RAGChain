@@ -2,7 +2,6 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from flask import Flask, request, jsonify, render_template
 import json
-import bleach
 from werkzeug.utils import secure_filename
 from specterragchain1 import ResearchPaperRAG  
 import logging
@@ -86,8 +85,7 @@ def results():
     result = request.args.get('result', '{}')
     try:
         result = json.loads(result)
-        if 'answer' in result:
-            result['answer'] = bleach.clean(result['answer'])  # Sanitize to prevent XSS
+        
     except json.JSONDecodeError:
         result = {'answer': '', 'confidence': 0, 'metadata': {}, 'evaluation': {}, 'sources': []}
     return render_template('results.html', question=question, result=result)
