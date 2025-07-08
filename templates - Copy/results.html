@@ -22,9 +22,7 @@
             <h2>Query Results</h2>
             <p><strong>Question:</strong> {{ question }}</p>
             <p><strong>Answer:</strong></p>
-            <div>{{ result.answer|truncate(1000, true, '...')|safe }}</div>
-            <!-- Add truncation to sources -->
-            <p>{{ source.text|truncate(300, true, '...') }}</p>
+            <div>{{ result.answer|safe }}</div>
             <p><strong>Confidence:</strong> {{ result.confidence|round(1) }}%</p>
         </section>
         

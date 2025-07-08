@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Paper RAG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold text-center mb-6">Research Paper Query System</h1>
+        
+        <!-- File Upload Section -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">Upload Research Paper (PDF)</h2>
+            <input type="file" id="pdfFile" accept=".pdf" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0
+                file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100">
+            <button id="uploadButton" class="mt-4 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600">Upload</button>
+            <p id="uploadStatus" class="mt-2 text-sm text-gray-600"></p>
+        </div>
+        
+        <!-- Query Section -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold mb-4">Ask a Question</h2>
+            <textarea id="queryInput" rows="4" class="w-full p-2 border rounded mb-4" placeholder="Enter your question about the research paper..."></textarea>
+            <button id="queryButton" class="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600">Submit Query</button>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="results" class="mt-6 bg-white p-6 rounded-lg shadow-md hidden">
+            <h2 class="text-xl font-semibold mb-4">Results</h2>
+            <div id="resultContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Handle file upload
+        document.getElementById('uploadButton').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfFile');
+            const status = document.getElementById('uploadStatus');
+            if (!fileInput.files[0]) {
+                status.textContent = 'Please select a PDF file.';
+                status.classList.add('text-red-500');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                status.textContent = result.message || result.error;
+                status.classList.add(result.error ? 'text-red-500' : 'text-green-500');
+            } catch (error) {
+                status.textContent = 'Error uploading file.';
+                status.classList.add('text-red-500');
+            }
+        });
+
+        // Handle query submission
+        document.getElementById('queryButton').addEventListener('click', async () => {
+            const queryInput = document.getElementById('queryInput').value;
+            const resultsDiv = document.getElementById('results');
+            const resultContent = document.getElementById('resultContent');
+            if (!queryInput.trim()) {
+                resultContent.innerHTML = '<p class="text-red-500">Please enter a valid question.</p>';
+                resultsDiv.classList.remove('hidden');
+                return;
+            }
+            try {
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: queryInput })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    resultContent.innerHTML = `<p class="text-red-500">${result.error}</p>`;
+                } else {
+                    resultContent.innerHTML = `
+                        <p><strong>Question:</strong> ${queryInput}</p>
+                        <p><strong>Answer:</strong> ${result.answer}</p>
+                        <p><strong>Confidence:</strong> ${result.confidence}%</p>
+                        <p><strong>Title:</strong> ${result.metadata.title || 'Unknown'}</p>
+                        <p><strong>Authors:</strong> ${result.metadata.authors || 'Unknown'}</p>
+                        <p><strong>Abstract:</strong> ${result.metadata.abstract || 'Not extracted'}</p>
+                        <h3 class="text-lg font-semibold mt-4">Sources:</h3>
+                        <ul class="list-disc pl-5">
+                            ${result.sources.map(source => `
+                                <li>
+                                    ${source.rank}. ${source.section} (Page ${source.page}, Score: ${source.relevance_score})
+                                    <p class="text-sm text-gray-600">${source.text}</p>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    `;
+                }
+                resultsDiv.classList.remove('hidden');
+            } catch (error) {
+                resultContent.innerHTML = '<p class="text-red-500">Error processing query.</p>';
+                resultsDiv.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
