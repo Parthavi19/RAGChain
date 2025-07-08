@@ -23,15 +23,35 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import PdfFormatOption
 import json
 
-# Download NLTK resources
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt_tab')
+# Download NLTK resources with better error handling
+def download_nltk_resources():
+    """Download required NLTK resources with proper error handling."""
+    resources_to_download = [
+        ('tokenizers/punkt', 'punkt'),
+        ('tokenizers/punkt_tab', 'punkt_tab')
+    ]
+    
+    for resource_path, resource_name in resources_to_download:
+        try:
+            nltk.data.find(resource_path)
+            print(f"NLTK resource {resource_name} already available")
+        except LookupError:
+            try:
+                print(f"Downloading NLTK resource: {resource_name}")
+                nltk.download(resource_name, quiet=True)
+                print(f"Successfully downloaded {resource_name}")
+            except Exception as e:
+                print(f"Warning: Could not download {resource_name}: {e}")
+                # For punkt_tab, try alternative if it fails
+                if resource_name == 'punkt_tab':
+                    try:
+                        nltk.download('punkt', quiet=True)
+                        print("Downloaded punkt as alternative to punkt_tab")
+                    except Exception as e2:
+                        print(f"Warning: Could not download punkt alternative: {e2}")
+
+# Initialize NLTK resources
+download_nltk_resources()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -356,7 +376,14 @@ class ResearchPaperRAG:
                 ))
             else:
                 # For larger texts, use sliding window approach
-                sentences = nltk.sent_tokenize(text)
+                try:
+                    sentences = nltk.sent_tokenize(text)
+                except Exception as e:
+                    # Fallback to simple splitting if NLTK fails
+                    self.logger.warning(f"NLTK tokenization failed, using simple splitting: {e}")
+                    sentences = text.split('. ')
+                    sentences = [s.strip() + '.' for s in sentences if s.strip()]
+                
                 current_chunk = ""
                 sentence_buffer = []
                 
