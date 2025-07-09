@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 from specterragchain1 import ResearchPaperRAG  
 import logging
 
-app = Flask(__name__)
+app = Flask(__name__,static_url_path="/static",static_folder="static")
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
 
