@@ -37,54 +37,75 @@
     </div>
 
     <script>
-    document.getElementById('upload-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fileInput = document.getElementById('pdf-file');
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('Please select a PDF file');
-            return;
-        }
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-            const result = await response.json();
-            alert(result.message || result.error);
-        } catch (error) {
-            console.error('Upload error:', error);
-            alert('Error uploading file: ' + error.message);
-        }
-    });
-
-    document.getElementById('query-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const question = document.getElementById('question-input').value.trim();
-        if (!question) {
-            alert('Please enter a valid question');
-            return;
-        }
-        try {
-            const response = await fetch('/query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ question })
-            });
-            const result = await response.json();
-            if (response.ok) {
-                window.location.href = '/results?question=' + encodeURIComponent(question) + '&result=' + encodeURIComponent(JSON.stringify(result));
-            } else {
-                console.error('Query error:', result.error);
-                alert('Error: ' + (result.error || 'Unknown error occurred'));
+        // Handle file upload
+        document.getElementById('uploadButton').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfFile');
+            const status = document.getElementById('uploadStatus');
+            if (!fileInput.files[0]) {
+                status.textContent = 'Please select a PDF file.';
+                status.classList.add('text-red-500');
+                return;
             }
-        } catch (error) {
-            console.error('Query error:', error);
-            alert('Error submitting query: ' + error.message);
-        }
-    });
-</script>
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                status.textContent = result.message || result.error;
+                status.classList.add(result.error ? 'text-red-500' : 'text-green-500');
+            } catch (error) {
+                status.textContent = 'Error uploading file.';
+                status.classList.add('text-red-500');
+            }
+        });
+
+        // Handle query submission
+        document.getElementById('queryButton').addEventListener('click', async () => {
+            const queryInput = document.getElementById('queryInput').value;
+            const resultsDiv = document.getElementById('results');
+            const resultContent = document.getElementById('resultContent');
+            if (!queryInput.trim()) {
+                resultContent.innerHTML = '<p class="text-red-500">Please enter a valid question.</p>';
+                resultsDiv.classList.remove('hidden');
+                return;
+            }
+            try {
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: queryInput })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    resultContent.innerHTML = `<p class="text-red-500">${result.error}</p>`;
+                } else {
+                    resultContent.innerHTML = `
+                        <p><strong>Question:</strong> ${queryInput}</p>
+                        <p><strong>Answer:</strong> ${result.answer}</p>
+                        <p><strong>Confidence:</strong> ${result.confidence}%</p>
+                        <p><strong>Title:</strong> ${result.metadata.title || 'Unknown'}</p>
+                        <p><strong>Authors:</strong> ${result.metadata.authors || 'Unknown'}</p>
+                        <p><strong>Abstract:</strong> ${result.metadata.abstract || 'Not extracted'}</p>
+                        <h3 class="text-lg font-semibold mt-4">Sources:</h3>
+                        <ul class="list-disc pl-5">
+                            ${result.sources.map(source => `
+                                <li>
+                                    ${source.rank}. ${source.section} (Page ${source.page}, Score: ${source.relevance_score})
+                                    <p class="text-sm text-gray-600">${source.text}</p>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    `;
+                }
+                resultsDiv.classList.remove('hidden');
+            } catch (error) {
+                resultContent.innerHTML = '<p class="text-red-500">Error processing query.</p>';
+                resultsDiv.classList.remove('hidden');
+            }
+        });
+    </script>
 </body>
 </html>
