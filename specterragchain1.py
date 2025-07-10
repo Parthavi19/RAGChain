@@ -4,38 +4,13 @@ import numpy as np
 import faiss
 import PyPDF2
 import re
-import nltk
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import logging
 from transformers import AutoTokenizer, AutoModel
 import torch
-from datasets import Dataset
-from ragas import evaluate
-from ragas.llms import LangchainLLMWrapper
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 import time
 import google.api_core.exceptions
-import pkg_resources
-from ragas.metrics import context_precision, context_recall, answer_relevancy, faithfulness
-
-# Download NLTK resources
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt_tab')
-try:
-    nltk.data.find('taggers/maxent_ne_chunker')
-except LookupError:
-    nltk.download('maxent_ne_chunker')
-try:
-    nltk.data.find('corpora/words')
-except LookupError:
-    nltk.download('words')
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -59,15 +34,6 @@ class ResearchPaperRAG:
                 top_k=30,
             )
         )
-        self.langchain_llm = LangchainLLMWrapper(ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=api_key,
-            temperature=0.1
-        ))
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=api_key
-        )
 
         self.logger = logging.getLogger(__name__)
         self.logger.info("Loading embedding model...")
@@ -87,25 +53,6 @@ class ResearchPaperRAG:
         self.paper_metadata = {}
         self.api_quota_exceeded = False
 
-        ragas_version = pkg_resources.get_distribution("ragas").version
-        self.logger.info(f"Detected ragas version: {ragas_version}")
-        use_embeddings = ragas_version >= "0.2.0"
-
-        self.metrics = [
-            context_precision,
-            context_recall,
-            answer_relevancy,
-            faithfulness
-        ]
-        for metric in self.metrics:
-            try:
-                metric.llm = self.langchain_llm
-                if use_embeddings and hasattr(metric, 'embeddings'):
-                    metric.embeddings = self.embeddings
-                self.logger.debug(f"Assigned LLM and embeddings to metric: {metric.name}")
-            except Exception as e:
-                self.logger.error(f"Failed to assign LLM/embeddings to metric {metric.name}: {e}")
-
     def clean_text(self, text: str) -> str:
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
@@ -113,6 +60,29 @@ class ResearchPaperRAG:
         text = re.sub(r'Page\s+\d+', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\s+([,.!?;:])', r'\1', text)
         return text.strip()
+
+    def tokenize_sentences(self, text: str) -> List[str]:
+        """
+        Simple regex-based sentence tokenization to replace NLTK's sent_tokenize.
+        Handles most common sentence endings and abbreviations.
+        """
+        # Common abbreviations that shouldn't end sentences
+        abbreviations = r'(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Fig|fig|Table|table|al|e\.g|i\.e|cf|viz|Inc|Corp|Ltd|Co|LLC|Ph\.D|M\.D|B\.A|M\.A|B\.S|M\.S|CEO|CFO|CTO|USA|UK|EU|UN|NASA|IEEE|ACM|MIT|UCLA|USC|NYU|IBM|HP|AI|ML|NLP|CV|GPU|CPU|API|URL|HTTP|HTTPS|XML|JSON|PDF|HTML|CSS|JS|SQL|DB|OS|UI|UX|3D|2D|RGB|CMYK|JPEG|PNG|GIF|SVG|MP3|MP4|AVI|MOV|ZIP|RAR|TAR|GZ|TXT|DOC|DOCX|XLS|XLSX|PPT|PPTX|CSV|TSV|YAML|TOML|INI|CFG|LOG|BAK|TMP|TEMP|SRC|BIN|LIB|DLL|EXE|APP|DMG|ISO|IMG|VHD|VMDK|OVA|OVF|VM|VPS|CDN|DNS|IP|TCP|UDP|FTP|SFTP|SSH|SSL|TLS|VPN|LAN|WAN|WLAN|WiFi|GPS|NFC|RFID|QR|OCR|AR|VR|IoT|5G|4G|3G|2G|GSM|CDMA|LTE|WiFi6|Bluetooth|USB|HDMI|VGA|DVI|DisplayPort|Thunderbolt|FireWire|Ethernet|SSD|HDD|RAM|ROM|BIOS|UEFI|RAID|NAS|SAN|VM|VMware|Hyper-V|KVM|Xen|Docker|Kubernetes|AWS|Azure|GCP|S3|EC2|RDS|VPC|IAM|CDN|DNS|SSL|TLS|VPN|API|SDK|CLI|GUI|IDE|VS|VSCode|IntelliJ|Eclipse|NetBeans|Xcode|Android|iOS|Windows|Linux|Unix|macOS|Ubuntu|CentOS|RHEL|SUSE|Debian|Fedora|Arch|Gentoo|FreeBSD|OpenBSD|Solaris|AIX|HP-UX|z/OS|AS/400|OpenVMS|QNX|RT|RTOS|FreeRTOS|VxWorks|eCos|uC/OS|ThreadX|Nucleus|Integrity|PikeOS|QNX|LynxOS|VxWorks|RTEMS|TinyOS|Contiki|RIOT|Zephyr|NuttX|ChibiOS|FreeRTOS|SafeRTOS|OSEK|AUTOSAR|MISRA|ISO26262|IEC61508|DO-178C|RTCA|EUROCAE|FAA|EASA|NHTSA|ISO|IEC|IEEE|ANSI|NIST|FIPS|CC|FIDO|OATH|SAML|OAuth|OpenID|LDAP|AD|AAD|RBAC|ABAC|ACL|DAC|MAC|MFA|2FA|OTP|TOTP|HOTP|FIDO2|WebAuthn|PKI|CA|CSR|CRL|OCSP|HSM|TPM|TEE|SE|SGX|TrustZone|OP-TEE|GlobalPlatform|FIDO|U2F|CTAP|CBOR|JOSE|JWT|JWS|JWE|JWK|JWKS|COSE|CBOR|ASN\.1|DER|PEM|PKCS|X\.509|TLS|SSL|IPSec|WireGuard|OpenVPN|PPTP|L2TP|SSTP|IKEv2|EAP|RADIUS|TACACS|Kerberos|NTLM|SPNEGO|GSSAPI|SASL|SCRAM|DIGEST-MD5|PLAIN|LOGIN|CRAM-MD5|EXTERNAL|ANONYMOUS|OAuthBearerToken|XOAuth2|NTLM|Negotiate|Basic|Digest|AWS4-HMAC-SHA256|Signature|Authorization|Bearer|Token|API-Key|X-API-Key|X-Auth-Token|X-Access-Token|X-Amz-Security-Token|X-Amz-Date|X-Amz-Algorithm|X-Amz-Credential|X-Amz-SignedHeaders|X-Amz-Signature|Content-Type|Content-Length|Content-Encoding|Content-Disposition|Content-Range|Accept|Accept-Encoding|Accept-Language|Accept-Ranges|Cache-Control|Connection|Cookie|Date|ETag|Expires|Host|If-Match|If-Modified-Since|If-None-Match|If-Range|If-Unmodified-Since|Last-Modified|Location|Pragma|Proxy-Authenticate|Proxy-Authorization|Range|Referer|Retry-After|Server|Set-Cookie|Transfer-Encoding|Upgrade|User-Agent|Vary|Via|Warning|WWW-Authenticate|X-Forwarded-For|X-Forwarded-Proto|X-Forwarded-Host|X-Real-IP|X-Requested-With|X-CSRF-Token|X-Frame-Options|X-Content-Type-Options|X-XSS-Protection|Strict-Transport-Security|Content-Security-Policy|Public-Key-Pins|Expect-CT|Feature-Policy|Permissions-Policy|Cross-Origin-Embedder-Policy|Cross-Origin-Opener-Policy|Cross-Origin-Resource-Policy|Referrer-Policy|Clear-Site-Data|Large-Allocation|NEL|Report-To|Server-Timing|SourceMap|Timing-Allow-Origin|Tk|Upgrade-Insecure-Requests|Viewport-Width|Width|DPR|Downlink|ECT|RTT|Save-Data|Sec-CH-UA|Sec-CH-UA-Mobile|Sec-CH-UA-Platform|Sec-Fetch-Dest|Sec-Fetch-Mode|Sec-Fetch-Site|Sec-Fetch-User|Sec-WebSocket-Accept|Sec-WebSocket-Extensions|Sec-WebSocket-Key|Sec-WebSocket-Protocol|Sec-WebSocket-Version|Alt-Svc|Early-Data|Expect-CT|Link|Origin|Sec-Purpose|Service-Worker-Navigation-Preload|X-DNS-Prefetch-Control|X-Pingback|X-Powered-By|X-UA-Compatible)'
+        
+        # Pattern to match sentence endings, excluding abbreviations
+        sentence_pattern = r'(?<!\b' + abbreviations + r')(?<=[.!?])\s+(?=[A-Z])'
+        
+        # Split text into sentences
+        sentences = re.split(sentence_pattern, text)
+        
+        # Clean up sentences and filter out empty ones
+        cleaned_sentences = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence and len(sentence) > 3:  # Filter out very short fragments
+                cleaned_sentences.append(sentence)
+        
+        return cleaned_sentences
 
     def extract_metadata_and_text(self, pdf_path: str) -> List[Dict]:
         self.logger.info(f"Extracting text from PDF: {pdf_path}")
@@ -158,8 +128,11 @@ class ResearchPaperRAG:
             section = page_data['section']
             if not text.strip():
                 continue
-            sentences = nltk.sent_tokenize(text)
+                
+            # Use regex-based sentence tokenization instead of NLTK
+            sentences = self.tokenize_sentences(text)
             current_chunk = ""
+            
             for sentence in sentences:
                 potential_chunk = current_chunk + " " + sentence if current_chunk else sentence
                 if len(potential_chunk) <= self.chunk_size:
@@ -173,6 +146,7 @@ class ResearchPaperRAG:
                         ))
                         chunk_id += 1
                     current_chunk = sentence[-self.overlap:] + " " + sentence if len(sentence) > self.overlap else sentence
+            
             if current_chunk.strip():
                 chunks.append(ResearchChunk(
                     text=current_chunk.strip(),
@@ -180,6 +154,7 @@ class ResearchPaperRAG:
                     section=section
                 ))
                 chunk_id += 1
+        
         self.logger.info(f"Created {len(chunks)} chunks")
         return chunks
 
@@ -315,63 +290,6 @@ ANSWER:"""
                 self.logger.error(f"Error generating response: {e}")
                 return f"Error generating response: {str(e)}"
 
-    def evaluate_response(self, query: str, answer: str, context_chunks: List[ResearchChunk]) -> Dict:
-        """Evaluate the LLM response using RAGAs metrics."""
-        contexts = [chunk.text for chunk in context_chunks if chunk.text.strip()]
-        ground_truth = " ".join(contexts) if contexts else "No relevant context found."
-        if not contexts or all("publication date" in ctx.lower() for ctx in contexts):
-            self.logger.warning("Retrieved contexts are uninformative (e.g., only publication dates)")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
-        
-        data = {
-            "question": [query],
-            "answer": [answer],
-            "contexts": [contexts],
-            "ground_truth": [ground_truth]
-        }
-        try:
-            dataset = Dataset.from_dict(data)
-            self.logger.debug(f"Evaluation dataset: {data}")
-        except Exception as e:
-            self.logger.error(f"Error creating dataset: {e}")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
-
-        try:
-            result = evaluate(
-                dataset=dataset,
-                metrics=self.metrics,
-                llm=self.langchain_llm,
-                embeddings=self.embeddings if pkg_resources.get_distribution("ragas").version >= "0.2.0" else None,
-                raise_exceptions=True
-            )
-            self.logger.debug(f"Raw evaluation result: {result}")
-            eval_result = {
-                "context_precision": float(result.get("context_precision", 0.0)),
-                "context_recall": float(result.get("context_recall", 0.0)),
-                "response_relevancy": float(result.get("answer_relevancy", 0.0)),
-                "faithfulness": float(result.get("faithfulness", 0.0))
-            }
-            self.logger.info(f"Evaluation metrics: {eval_result}")
-            return eval_result
-        except Exception as e:
-            self.logger.error(f"Error evaluating response: {str(e)}")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
-
     def query(self, question: str, top_k: int = 10) -> Dict:
         if not question.strip():
             self.logger.warning("Empty question provided")
@@ -379,14 +297,9 @@ ANSWER:"""
                 'answer': "Please provide a valid question.",
                 'sources': [],
                 'confidence': 0.0,
-                'metadata': {},
-                'evaluation': {
-                    'context_precision': 0.0,
-                    'context_recall': 0.0,
-                    'response_relevancy': 0.0,
-                    'faithfulness': 0.0
-                }
+                'metadata': {}
             }
+        
         relevant_chunks = self.retrieve(question, top_k)
         if not relevant_chunks:
             self.logger.info("No relevant chunks found")
@@ -394,17 +307,13 @@ ANSWER:"""
                 'answer': "No relevant information found in the paper.",
                 'sources': [],
                 'confidence': 0.0,
-                'metadata': self.paper_metadata,
-                'evaluation': {
-                    'context_precision': 0.0,
-                    'context_recall': 0.0,
-                    'response_relevancy': 0.0,
-                    'faithfulness': 0.0
-                }
+                'metadata': self.paper_metadata
             }
+        
         avg_similarity = sum(sim for _, sim in relevant_chunks) / len(relevant_chunks)
         confidence = avg_similarity * 100
         answer = self.generate_response(question, [chunk for chunk, _ in relevant_chunks])
+        
         sources = [{
             'rank': i + 1,
             'section': chunk.section,
@@ -412,13 +321,13 @@ ANSWER:"""
             'text': chunk.text[:200] + "..." if len(chunk.text) > 200 else chunk.text,
             'relevance_score': float(round(sim, 3))
         } for i, (chunk, sim) in enumerate(relevant_chunks)]
-        evaluation = self.evaluate_response(question, answer, [chunk for chunk, _ in relevant_chunks])
+        
         result = {
             'answer': answer,
             'sources': sources,
             'confidence': float(round(confidence, 1)),
-            'metadata': self.paper_metadata,
-            'evaluation': evaluation
+            'metadata': self.paper_metadata
         }
+        
         self.logger.info(f"Query result: {result}")
         return result
