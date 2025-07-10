@@ -1,6 +1,5 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 from flask import Flask, request, jsonify, render_template, session
 from werkzeug.utils import secure_filename
 import google.generativeai as genai
@@ -12,14 +11,8 @@ from dataclasses import dataclass
 import logging
 from transformers import AutoTokenizer, AutoModel
 import torch
-from datasets import Dataset
-from ragas import evaluate
-from ragas.llms import LangchainLLMWrapper
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 import time
 import google.api_core.exceptions
-import pkg_resources
-from ragas.metrics import context_precision, context_recall, answer_relevancy, faithfulness
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
@@ -104,17 +97,6 @@ class ResearchPaperRAG:
                 top_k=30,
             )
         )
-        
-        # Initialize LangChain components for RAGAS
-        self.langchain_llm = LangchainLLMWrapper(ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=api_key,
-            temperature=0.1
-        ))
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=api_key
-        )
 
         # Initialize Qdrant client
         self.qdrant_client = QdrantClient(
@@ -149,31 +131,6 @@ class ResearchPaperRAG:
         self.paper_metadata = {}
         self.api_quota_exceeded = False
         self.collection_created = False
-
-        # Setup RAGAS metrics
-        try:
-            ragas_version = pkg_resources.get_distribution("ragas").version
-            self.logger.info(f"Detected ragas version: {ragas_version}")
-            use_embeddings = ragas_version >= "0.2.0"
-
-            self.metrics = [
-                context_precision,
-                context_recall,
-                answer_relevancy,
-                faithfulness
-            ]
-            
-            for metric in self.metrics:
-                try:
-                    metric.llm = self.langchain_llm
-                    if use_embeddings and hasattr(metric, 'embeddings'):
-                        metric.embeddings = self.embeddings
-                    self.logger.debug(f"Assigned LLM and embeddings to metric: {metric.name}")
-                except Exception as e:
-                    self.logger.error(f"Failed to assign LLM/embeddings to metric {metric.name}: {e}")
-        except Exception as e:
-            self.logger.error(f"Error setting up RAGAS metrics: {e}")
-            self.metrics = []
 
     def clean_text(self, text: str) -> str:
         """Clean and normalize text."""
@@ -474,74 +431,17 @@ ANSWER:"""
                 self.logger.error(f"Error generating response: {e}")
                 return f"Error generating response: {str(e)}"
 
-    def evaluate_response(self, query: str, answer: str, context_chunks: List[ResearchChunk]) -> Dict:
-        """Evaluate the LLM response using RAGAs metrics."""
-        if not self.metrics:
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
-            
-        contexts = [chunk.text for chunk in context_chunks if chunk.text.strip()]
-        ground_truth = " ".join(contexts) if contexts else "No relevant context found."
+    def calculate_simple_confidence(self, similarities: List[float]) -> float:
+        """Calculate a simple confidence score based on similarity scores."""
+        if not similarities:
+            return 0.0
         
-        if not contexts or all("publication date" in ctx.lower() for ctx in contexts):
-            self.logger.warning("Retrieved contexts are uninformative")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
+        # Use weighted average with higher weight for top results
+        weights = [1.0 / (i + 1) for i in range(len(similarities))]
+        weighted_sum = sum(sim * weight for sim, weight in zip(similarities, weights))
+        total_weight = sum(weights)
         
-        data = {
-            "question": [query],
-            "answer": [answer],
-            "contexts": [contexts],
-            "ground_truth": [ground_truth]
-        }
-        
-        try:
-            dataset = Dataset.from_dict(data)
-            self.logger.debug(f"Evaluation dataset: {data}")
-        except Exception as e:
-            self.logger.error(f"Error creating dataset: {e}")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
-
-        try:
-            result = evaluate(
-                dataset=dataset,
-                metrics=self.metrics,
-                llm=self.langchain_llm,
-                embeddings=self.embeddings if pkg_resources.get_distribution("ragas").version >= "0.2.0" else None,
-                raise_exceptions=True
-            )
-            
-            eval_result = {
-                "context_precision": float(result.get("context_precision", 0.0)),
-                "context_recall": float(result.get("context_recall", 0.0)),
-                "response_relevancy": float(result.get("answer_relevancy", 0.0)),
-                "faithfulness": float(result.get("faithfulness", 0.0))
-            }
-            
-            self.logger.info(f"Evaluation metrics: {eval_result}")
-            return eval_result
-            
-        except Exception as e:
-            self.logger.error(f"Error evaluating response: {str(e)}")
-            return {
-                "context_precision": 0.0,
-                "context_recall": 0.0,
-                "response_relevancy": 0.0,
-                "faithfulness": 0.0
-            }
+        return min(100.0, (weighted_sum / total_weight) * 100)
 
     def query(self, question: str, top_k: int = 10) -> Dict:
         """Process query and return results."""
@@ -551,13 +451,7 @@ ANSWER:"""
                 'answer': "Please provide a valid question.",
                 'sources': [],
                 'confidence': 0.0,
-                'metadata': {},
-                'evaluation': {
-                    'context_precision': 0.0,
-                    'context_recall': 0.0,
-                    'response_relevancy': 0.0,
-                    'faithfulness': 0.0
-                }
+                'metadata': {}
             }
         
         relevant_chunks = self.retrieve(question, top_k)
@@ -568,17 +462,12 @@ ANSWER:"""
                 'answer': "No relevant information found in the paper.",
                 'sources': [],
                 'confidence': 0.0,
-                'metadata': self.paper_metadata,
-                'evaluation': {
-                    'context_precision': 0.0,
-                    'context_recall': 0.0,
-                    'response_relevancy': 0.0,
-                    'faithfulness': 0.0
-                }
+                'metadata': self.paper_metadata
             }
         
-        avg_similarity = sum(sim for _, sim in relevant_chunks) / len(relevant_chunks)
-        confidence = avg_similarity * 100
+        # Calculate confidence based on similarity scores
+        similarities = [sim for _, sim in relevant_chunks]
+        confidence = self.calculate_simple_confidence(similarities)
         
         answer = self.generate_response(question, [chunk for chunk, _ in relevant_chunks])
         
@@ -590,17 +479,14 @@ ANSWER:"""
             'relevance_score': float(round(sim, 3))
         } for i, (chunk, sim) in enumerate(relevant_chunks)]
         
-        evaluation = self.evaluate_response(question, answer, [chunk for chunk, _ in relevant_chunks])
-        
         result = {
             'answer': answer,
             'sources': sources,
             'confidence': float(round(confidence, 1)),
-            'metadata': self.paper_metadata,
-            'evaluation': evaluation
+            'metadata': self.paper_metadata
         }
         
-        self.logger.info(f"Query result: {result}")
+        self.logger.info(f"Query processed successfully with confidence: {confidence}%")
         return result
 
     def cleanup(self):
