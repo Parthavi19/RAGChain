@@ -29,43 +29,43 @@ import shutil
 
 # Initialize Flask app
 app = Flask(__name__, static_url_path='/static', static_folder='static')
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 
-# Configuration
-API_KEY = "AIzaSyDw-MBI6oRRLNGEz8LksrgkPnAj0vSZeV4"
-QDRANT_URL = "https://004fed81-613d-49f3-a9d4-159a745114b0.europe-west3-0.gcp.cloud.qdrant.io:6333"  # Replace with your Qdrant URL
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.4jW6kmZPwAbF-O_wIZ8xqlMBcVGSpfc8GrwPkXGo2fE"  # Replace with your Qdrant API key
-
-# Ensure upload folder exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Configuration - Use environment variables for production
+API_KEY = os.environ.get('GOOGLE_API_KEY', "AIzaSyDw-MBI6oRRLNGEz8LksrgkPnAj0vSZeV4")
+QDRANT_URL = os.environ.get('QDRANT_URL', "https://004fed81-613d-49f3-a9d4-159a745114b0.europe-west3-0.gcp.cloud.qdrant.io:6333")
+QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY', "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.4jW6kmZPwAbF-O_wIZ8xqlMBcVGSpfc8GrwPkXGo2fE")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Download NLTK resources
+# Download NLTK resources with error handling for Cloud Run
 def download_nltk_resources():
+    """Download NLTK resources with proper error handling for Cloud Run."""
     try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt')
-    try:
-        nltk.data.find('tokenizers/punkt_tab')
-    except LookupError:
-        nltk.download('punkt_tab')
-    try:
-        nltk.data.find('taggers/maxent_ne_chunker')
-    except LookupError:
-        nltk.download('maxent_ne_chunker')
-    try:
-        nltk.data.find('corpora/words')
-    except LookupError:
-        nltk.download('words')
+        # Try to download to a writable location
+        nltk_data_dir = '/tmp/nltk_data'
+        os.makedirs(nltk_data_dir, exist_ok=True)
+        nltk.data.path.append(nltk_data_dir)
+        
+        # Download required NLTK data
+        for resource in ['punkt', 'punkt_tab', 'maxent_ne_chunker', 'words']:
+            try:
+                nltk.data.find(f'tokenizers/{resource}' if resource.startswith('punkt') else f'taggers/{resource}' if resource == 'maxent_ne_chunker' else f'corpora/{resource}')
+            except LookupError:
+                try:
+                    nltk.download(resource, download_dir=nltk_data_dir, quiet=True)
+                    logger.info(f"Downloaded NLTK resource: {resource}")
+                except Exception as e:
+                    logger.warning(f"Failed to download NLTK resource {resource}: {e}")
+                    
+    except Exception as e:
+        logger.error(f"Error setting up NLTK resources: {e}")
+        # Fallback: try to use existing NLTK data or continue without
 
-# Download NLTK resources at startup
+# Initialize NLTK resources
 download_nltk_resources()
 
 @dataclass
@@ -78,6 +78,8 @@ class ResearchChunk:
 
 class ResearchPaperRAG:
     def __init__(self, api_key: str, qdrant_url: str, qdrant_api_key: str, chunk_size: int = 600, overlap: int = 50):
+        logger.info("Initializing ResearchPaperRAG...")
+        
         # Initialize Gemini
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(
@@ -112,14 +114,18 @@ class ResearchPaperRAG:
         self.logger = logging.getLogger(__name__)
         self.logger.info("Loading embedding model...")
         
-        # Initialize embedding model
+        # Initialize embedding model with error handling
         try:
             self.tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
             self.embedding_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
         except Exception as e:
             self.logger.warning(f"Failed to load all-MiniLM-L6-v2: {e}. Falling back to bert-base-uncased.")
-            self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-            self.embedding_model = AutoModel.from_pretrained('bert-base-uncased')
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+                self.embedding_model = AutoModel.from_pretrained('bert-base-uncased')
+            except Exception as e:
+                self.logger.error(f"Failed to load any embedding model: {e}")
+                raise Exception("Could not load embedding model")
         
         self.embedding_model.eval()
 
@@ -131,25 +137,29 @@ class ResearchPaperRAG:
         self.collection_created = False
 
         # Setup RAGAS metrics
-        ragas_version = pkg_resources.get_distribution("ragas").version
-        self.logger.info(f"Detected ragas version: {ragas_version}")
-        use_embeddings = ragas_version >= "0.2.0"
+        try:
+            ragas_version = pkg_resources.get_distribution("ragas").version
+            self.logger.info(f"Detected ragas version: {ragas_version}")
+            use_embeddings = ragas_version >= "0.2.0"
 
-        self.metrics = [
-            context_precision,
-            context_recall,
-            answer_relevancy,
-            faithfulness
-        ]
-        
-        for metric in self.metrics:
-            try:
-                metric.llm = self.langchain_llm
-                if use_embeddings and hasattr(metric, 'embeddings'):
-                    metric.embeddings = self.embeddings
-                self.logger.debug(f"Assigned LLM and embeddings to metric: {metric.name}")
-            except Exception as e:
-                self.logger.error(f"Failed to assign LLM/embeddings to metric {metric.name}: {e}")
+            self.metrics = [
+                context_precision,
+                context_recall,
+                answer_relevancy,
+                faithfulness
+            ]
+            
+            for metric in self.metrics:
+                try:
+                    metric.llm = self.langchain_llm
+                    if use_embeddings and hasattr(metric, 'embeddings'):
+                        metric.embeddings = self.embeddings
+                    self.logger.debug(f"Assigned LLM and embeddings to metric: {metric.name}")
+                except Exception as e:
+                    self.logger.error(f"Failed to assign LLM/embeddings to metric {metric.name}: {e}")
+        except Exception as e:
+            self.logger.error(f"Error setting up RAGAS metrics: {e}")
+            self.metrics = []
 
     def clean_text(self, text: str) -> str:
         """Clean and normalize text."""
@@ -198,7 +208,7 @@ class ResearchPaperRAG:
         return 'Other'
 
     def chunk_text(self, pages_text: List[Dict]) -> List[ResearchChunk]:
-        """Split text into chunks."""
+        """Split text into chunks with fallback for NLTK."""
         chunks = []
         for page_data in pages_text:
             text = page_data['text']
@@ -207,8 +217,16 @@ class ResearchPaperRAG:
             
             if not text.strip():
                 continue
-                
-            sentences = nltk.sent_tokenize(text)
+            
+            # Try to use NLTK sentence tokenizer, fallback to simple splitting
+            try:
+                sentences = nltk.sent_tokenize(text)
+            except Exception as e:
+                self.logger.warning(f"NLTK sentence tokenization failed: {e}. Using simple splitting.")
+                # Simple sentence splitting fallback
+                sentences = re.split(r'[.!?]+', text)
+                sentences = [s.strip() for s in sentences if s.strip()]
+            
             current_chunk = ""
             
             for sentence in sentences:
@@ -450,6 +468,14 @@ ANSWER:"""
 
     def evaluate_response(self, query: str, answer: str, context_chunks: List[ResearchChunk]) -> Dict:
         """Evaluate the LLM response using RAGAs metrics."""
+        if not self.metrics:
+            return {
+                "context_precision": 0.0,
+                "context_recall": 0.0,
+                "response_relevancy": 0.0,
+                "faithfulness": 0.0
+            }
+            
         contexts = [chunk.text for chunk in context_chunks if chunk.text.strip()]
         ground_truth = " ".join(contexts) if contexts else "No relevant context found."
         
@@ -584,7 +610,7 @@ rag_instances = {}
 
 def allowed_file(filename):
     """Check if the file is a PDF."""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'pdf'
 
 def get_session_id():
     """Get or create session ID."""
@@ -702,4 +728,5 @@ def internal_error(error):
 if __name__ == '__main__':
     # Get port from environment variable, default to 8080 for Cloud Run
     port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    # Remove debug=True for production
+    app.run(host='0.0.0.0', port=port, debug=False)
