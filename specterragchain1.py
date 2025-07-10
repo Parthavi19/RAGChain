@@ -67,17 +67,53 @@ class ResearchPaperRAG:
         Handles most common sentence endings and abbreviations.
         """
         # Common abbreviations that shouldn't end sentences
-        abbreviations = r'(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Fig|fig|Table|table|al|e\.g|i\.e|cf|viz|Inc|Corp|Ltd|Co|LLC|Ph\.D|M\.D|B\.A|M\.A|B\.S|M\.S|CEO|CFO|CTO|USA|UK|EU|UN|NASA|IEEE|ACM|MIT|UCLA|USC|NYU|IBM|HP|AI|ML|NLP|CV|GPU|CPU|API|URL|HTTP|HTTPS|XML|JSON|PDF|HTML|CSS|JS|SQL|DB|OS|UI|UX|3D|2D|RGB|CMYK|JPEG|PNG|GIF|SVG|MP3|MP4|AVI|MOV|ZIP|RAR|TAR|GZ|TXT|DOC|DOCX|XLS|XLSX|PPT|PPTX|CSV|TSV|YAML|TOML|INI|CFG|LOG|BAK|TMP|TEMP|SRC|BIN|LIB|DLL|EXE|APP|DMG|ISO|IMG|VHD|VMDK|OVA|OVF|VM|VPS|CDN|DNS|IP|TCP|UDP|FTP|SFTP|SSH|SSL|TLS|VPN|LAN|WAN|WLAN|WiFi|GPS|NFC|RFID|QR|OCR|AR|VR|IoT|5G|4G|3G|2G|GSM|CDMA|LTE|WiFi6|Bluetooth|USB|HDMI|VGA|DVI|DisplayPort|Thunderbolt|FireWire|Ethernet|SSD|HDD|RAM|ROM|BIOS|UEFI|RAID|NAS|SAN|VM|VMware|Hyper-V|KVM|Xen|Docker|Kubernetes|AWS|Azure|GCP|S3|EC2|RDS|VPC|IAM|CDN|DNS|SSL|TLS|VPN|API|SDK|CLI|GUI|IDE|VS|VSCode|IntelliJ|Eclipse|NetBeans|Xcode|Android|iOS|Windows|Linux|Unix|macOS|Ubuntu|CentOS|RHEL|SUSE|Debian|Fedora|Arch|Gentoo|FreeBSD|OpenBSD|Solaris|AIX|HP-UX|z/OS|AS/400|OpenVMS|QNX|RT|RTOS|FreeRTOS|VxWorks|eCos|uC/OS|ThreadX|Nucleus|Integrity|PikeOS|QNX|LynxOS|VxWorks|RTEMS|TinyOS|Contiki|RIOT|Zephyr|NuttX|ChibiOS|FreeRTOS|SafeRTOS|OSEK|AUTOSAR|MISRA|ISO26262|IEC61508|DO-178C|RTCA|EUROCAE|FAA|EASA|NHTSA|ISO|IEC|IEEE|ANSI|NIST|FIPS|CC|FIDO|OATH|SAML|OAuth|OpenID|LDAP|AD|AAD|RBAC|ABAC|ACL|DAC|MAC|MFA|2FA|OTP|TOTP|HOTP|FIDO2|WebAuthn|PKI|CA|CSR|CRL|OCSP|HSM|TPM|TEE|SE|SGX|TrustZone|OP-TEE|GlobalPlatform|FIDO|U2F|CTAP|CBOR|JOSE|JWT|JWS|JWE|JWK|JWKS|COSE|CBOR|ASN\.1|DER|PEM|PKCS|X\.509|TLS|SSL|IPSec|WireGuard|OpenVPN|PPTP|L2TP|SSTP|IKEv2|EAP|RADIUS|TACACS|Kerberos|NTLM|SPNEGO|GSSAPI|SASL|SCRAM|DIGEST-MD5|PLAIN|LOGIN|CRAM-MD5|EXTERNAL|ANONYMOUS|OAuthBearerToken|XOAuth2|NTLM|Negotiate|Basic|Digest|AWS4-HMAC-SHA256|Signature|Authorization|Bearer|Token|API-Key|X-API-Key|X-Auth-Token|X-Access-Token|X-Amz-Security-Token|X-Amz-Date|X-Amz-Algorithm|X-Amz-Credential|X-Amz-SignedHeaders|X-Amz-Signature|Content-Type|Content-Length|Content-Encoding|Content-Disposition|Content-Range|Accept|Accept-Encoding|Accept-Language|Accept-Ranges|Cache-Control|Connection|Cookie|Date|ETag|Expires|Host|If-Match|If-Modified-Since|If-None-Match|If-Range|If-Unmodified-Since|Last-Modified|Location|Pragma|Proxy-Authenticate|Proxy-Authorization|Range|Referer|Retry-After|Server|Set-Cookie|Transfer-Encoding|Upgrade|User-Agent|Vary|Via|Warning|WWW-Authenticate|X-Forwarded-For|X-Forwarded-Proto|X-Forwarded-Host|X-Real-IP|X-Requested-With|X-CSRF-Token|X-Frame-Options|X-Content-Type-Options|X-XSS-Protection|Strict-Transport-Security|Content-Security-Policy|Public-Key-Pins|Expect-CT|Feature-Policy|Permissions-Policy|Cross-Origin-Embedder-Policy|Cross-Origin-Opener-Policy|Cross-Origin-Resource-Policy|Referrer-Policy|Clear-Site-Data|Large-Allocation|NEL|Report-To|Server-Timing|SourceMap|Timing-Allow-Origin|Tk|Upgrade-Insecure-Requests|Viewport-Width|Width|DPR|Downlink|ECT|RTT|Save-Data|Sec-CH-UA|Sec-CH-UA-Mobile|Sec-CH-UA-Platform|Sec-Fetch-Dest|Sec-Fetch-Mode|Sec-Fetch-Site|Sec-Fetch-User|Sec-WebSocket-Accept|Sec-WebSocket-Extensions|Sec-WebSocket-Key|Sec-WebSocket-Protocol|Sec-WebSocket-Version|Alt-Svc|Early-Data|Expect-CT|Link|Origin|Sec-Purpose|Service-Worker-Navigation-Preload|X-DNS-Prefetch-Control|X-Pingback|X-Powered-By|X-UA-Compatible)'
+        abbreviations = [
+            'Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'Fig', 'fig', 
+            'Table', 'table', 'al', 'e.g', 'i.e', 'cf', 'viz', 'Inc', 'Corp', 'Ltd', 
+            'Co', 'LLC', 'Ph.D', 'M.D', 'B.A', 'M.A', 'B.S', 'M.S', 'CEO', 'CFO', 
+            'CTO', 'USA', 'UK', 'EU', 'UN', 'NASA', 'IEEE', 'ACM', 'MIT', 'UCLA', 
+            'USC', 'NYU', 'IBM', 'HP', 'AI', 'ML', 'NLP', 'CV', 'GPU', 'CPU', 'API',
+            'URL', 'HTTP', 'HTTPS', 'XML', 'JSON', 'PDF', 'HTML', 'CSS', 'JS', 'SQL',
+            'DB', 'OS', 'UI', 'UX', '3D', '2D', 'RGB', 'CMYK', 'JPEG', 'PNG', 'GIF',
+            'SVG', 'MP3', 'MP4', 'AVI', 'MOV', 'ZIP', 'RAR', 'TAR', 'GZ', 'TXT',
+            'DOC', 'DOCX', 'XLS', 'XLSX', 'PPT', 'PPTX', 'CSV', 'TSV', 'YAML',
+            'TOML', 'INI', 'CFG', 'LOG', 'BAK', 'TMP', 'TEMP', 'SRC', 'BIN', 'LIB',
+            'DLL', 'EXE', 'APP', 'DMG', 'ISO', 'IMG', 'VHD', 'VMDK', 'OVA', 'OVF'
+        ]
         
-        # Pattern to match sentence endings, excluding abbreviations
-        sentence_pattern = r'(?<!\b' + abbreviations + r')(?<=[.!?])\s+(?=[A-Z])'
+        # Create a set for faster lookup
+        abbrev_set = set(abbreviations)
         
-        # Split text into sentences
-        sentences = re.split(sentence_pattern, text)
+        # Simple sentence splitting on periods, exclamation marks, and question marks
+        # followed by whitespace and capital letters
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+        
+        # Post-process to handle abbreviations
+        final_sentences = []
+        current_sentence = ""
+        
+        for sentence in sentences:
+            if current_sentence:
+                current_sentence += " " + sentence
+            else:
+                current_sentence = sentence
+                
+            # Check if this sentence ends with an abbreviation
+            words = current_sentence.strip().split()
+            if words:
+                last_word = words[-1].rstrip('.!?')
+                if last_word not in abbrev_set:
+                    # This looks like a real sentence end
+                    final_sentences.append(current_sentence.strip())
+                    current_sentence = ""
+        
+        # Add any remaining sentence
+        if current_sentence.strip():
+            final_sentences.append(current_sentence.strip())
         
         # Clean up sentences and filter out empty ones
         cleaned_sentences = []
-        for sentence in sentences:
+        for sentence in final_sentences:
             sentence = sentence.strip()
             if sentence and len(sentence) > 3:  # Filter out very short fragments
                 cleaned_sentences.append(sentence)
