@@ -155,7 +155,7 @@ def too_large(e):
 @app.errorhandler(500)
 def internal_error(error):
     logger.error(f"Internal server error: {error}")
-    return jsonify({'error': 'Internal server error'}), 500
+    return jsonify({'error': 'Internal servererror'}), 500
 
 if __name__ == '__main__':
     # Get port from environment variable, default to 8080 for Cloud Run
