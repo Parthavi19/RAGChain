@@ -18,6 +18,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
 import tempfile
 import shutil
+import sys
 
 # Initialize Flask app
 app = Flask(__name__, static_url_path='/static', static_folder='static')
@@ -32,6 +33,39 @@ QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY', "eyJhbGciOiJIUzI1NiIsInR5cCI6I
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global variables for lazy loading
+_embedding_model = None
+_tokenizer = None
+_model_loading_error = None
+
+def get_embedding_model():
+    """Lazy load embedding model to avoid startup delays."""
+    global _embedding_model, _tokenizer, _model_loading_error
+    
+    if _model_loading_error:
+        raise _model_loading_error
+    
+    if _embedding_model is None:
+        try:
+            logger.info("Loading embedding model...")
+            _tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+            _embedding_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+            _embedding_model.eval()
+            logger.info("Embedding model loaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to load all-MiniLM-L6-v2: {e}. Falling back to bert-base-uncased.")
+            try:
+                _tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+                _embedding_model = AutoModel.from_pretrained('bert-base-uncased')
+                _embedding_model.eval()
+                logger.info("Fallback embedding model loaded successfully")
+            except Exception as e:
+                logger.error(f"Failed to load any embedding model: {e}")
+                _model_loading_error = Exception(f"Could not load embedding model: {e}")
+                raise _model_loading_error
+    
+    return _embedding_model, _tokenizer
 
 @dataclass
 class ResearchChunk:
@@ -108,22 +142,10 @@ class ResearchPaperRAG:
         self.collection_name = f"research_papers_{uuid.uuid4().hex[:8]}"
         
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Loading embedding model...")
         
-        # Initialize embedding model with error handling
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-            self.embedding_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-        except Exception as e:
-            self.logger.warning(f"Failed to load all-MiniLM-L6-v2: {e}. Falling back to bert-base-uncased.")
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-                self.embedding_model = AutoModel.from_pretrained('bert-base-uncased')
-            except Exception as e:
-                self.logger.error(f"Failed to load any embedding model: {e}")
-                raise Exception("Could not load embedding model")
-        
-        self.embedding_model.eval()
+        # Don't load embedding model here - use lazy loading
+        self.embedding_model = None
+        self.tokenizer = None
 
         self.chunks: List[ResearchChunk] = []
         self.chunk_size = chunk_size
@@ -131,6 +153,11 @@ class ResearchPaperRAG:
         self.paper_metadata = {}
         self.api_quota_exceeded = False
         self.collection_created = False
+
+    def _ensure_embedding_model(self):
+        """Ensure embedding model is loaded."""
+        if self.embedding_model is None:
+            self.embedding_model, self.tokenizer = get_embedding_model()
 
     def clean_text(self, text: str) -> str:
         """Clean and normalize text."""
@@ -225,6 +252,8 @@ class ResearchPaperRAG:
 
     def create_embeddings(self, chunks: List[ResearchChunk]) -> np.ndarray:
         """Create embeddings for text chunks."""
+        self._ensure_embedding_model()
+        
         self.logger.info(f"Creating embeddings for {len(chunks)} chunks...")
         texts = [f"{chunk.section}: {chunk.text}" for chunk in chunks]
         embeddings = []
@@ -344,6 +373,8 @@ class ResearchPaperRAG:
         if not self.collection_created:
             self.logger.error("No document loaded")
             raise ValueError("No document loaded")
+        
+        self._ensure_embedding_model()
         
         # Create query embedding
         query_inputs = self.tokenizer(
@@ -512,6 +543,21 @@ def get_session_id():
         session['session_id'] = str(uuid.uuid4())
     return session['session_id']
 
+# Add startup health check
+@app.route('/startup', methods=['GET'])
+def startup_check():
+    """Startup readiness check."""
+    try:
+        # Basic health check - don't load models here
+        return jsonify({
+            'status': 'ready',
+            'timestamp': time.time(),
+            'message': 'Application started successfully'
+        }), 200
+    except Exception as e:
+        logger.error(f"Startup check failed: {e}")
+        return jsonify({'status': 'not_ready', 'error': str(e)}), 500
+
 @app.route('/')
 def index():
     """Render the main page."""
@@ -541,7 +587,7 @@ def upload_file():
                 file.save(tmp_file.name)
                 file_path = tmp_file.name
             
-            # Initialize RAG
+            # Initialize RAG (models will be loaded lazily)
             rag = ResearchPaperRAG(
                 api_key=API_KEY,
                 qdrant_url=QDRANT_URL,
@@ -596,7 +642,7 @@ def results():
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
-    return jsonify({'status': 'healthy'}), 200
+    return jsonify({'status': 'healthy', 'timestamp': time.time()}), 200
 
 @app.route('/cleanup', methods=['POST'])
 def cleanup_session():
@@ -617,10 +663,15 @@ def too_large(e):
 @app.errorhandler(500)
 def internal_error(error):
     logger.error(f"Internal server error: {error}")
-    return jsonify({'error': 'Internal server'}), 500
+    return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     # Get port from environment variable, default to 8080 for Cloud Run
     port = int(os.environ.get('PORT', 8080))
+    
+    # Log startup info
+    logger.info(f"Starting application on port {port}")
+    logger.info(f"Python version: {sys.version}")
+    
     # Remove debug=True for production
     app.run(host='0.0.0.0', port=port, debug=False)
