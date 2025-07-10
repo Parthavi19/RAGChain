@@ -7,7 +7,6 @@ import google.generativeai as genai
 import numpy as np
 import PyPDF2
 import re
-import nltk
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import logging
@@ -41,33 +40,6 @@ QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY', "eyJhbGciOiJIUzI1NiIsInR5cCI6I
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Download NLTK resources with error handling for Cloud Run
-def download_nltk_resources():
-    """Download NLTK resources with proper error handling for Cloud Run."""
-    try:
-        # Try to download to a writable location
-        nltk_data_dir = '/tmp/nltk_data'
-        os.makedirs(nltk_data_dir, exist_ok=True)
-        nltk.data.path.append(nltk_data_dir)
-        
-        # Download required NLTK data
-        for resource in ['punkt', 'punkt_tab', 'maxent_ne_chunker', 'words']:
-            try:
-                nltk.data.find(f'tokenizers/{resource}' if resource.startswith('punkt') else f'taggers/{resource}' if resource == 'maxent_ne_chunker' else f'corpora/{resource}')
-            except LookupError:
-                try:
-                    nltk.download(resource, download_dir=nltk_data_dir, quiet=True)
-                    logger.info(f"Downloaded NLTK resource: {resource}")
-                except Exception as e:
-                    logger.warning(f"Failed to download NLTK resource {resource}: {e}")
-                    
-    except Exception as e:
-        logger.error(f"Error setting up NLTK resources: {e}")
-        # Fallback: try to use existing NLTK data or continue without
-
-# Initialize NLTK resources
-download_nltk_resources()
-
 @dataclass
 class ResearchChunk:
     text: str
@@ -75,6 +47,48 @@ class ResearchChunk:
     section: str
     chunk_id: str
     embedding: np.ndarray = None
+    
+def regex_sentence_tokenize(text: str) -> List[str]:
+    """
+    Tokenize text into sentences using regex patterns.
+    Handles common abbreviations and edge cases.
+    """
+    # Common abbreviations that shouldn't end sentences
+    abbreviations = {
+        'dr', 'mr', 'mrs', 'ms', 'prof', 'inc', 'ltd', 'corp', 'co',
+        'vs', 'etc', 'fig', 'e.g', 'i.e', 'al', 'et', 'cf', 'p',
+        'pp', 'vol', 'no', 'ed', 'eds', 'min', 'max', 'approx',
+        'dept', 'univ', 'assoc', 'dev', 'eng', 'tech', 'sci',
+        'int', 'nat', 'comp', 'gen', 'spec', 'std', 'ref'
+    }
+    
+    # First, protect abbreviations by temporarily replacing periods
+    protected_text = text
+    for abbr in abbreviations:
+        # Match abbreviation followed by period (case insensitive)
+        pattern = rf'\b{re.escape(abbr)}\.'
+        replacement = f'{abbr}<PERIOD>'
+        protected_text = re.sub(pattern, replacement, protected_text, flags=re.IGNORECASE)
+    
+    # Handle decimal numbers (protect periods in numbers)
+    protected_text = re.sub(r'(\d+)\.(\d+)', r'\1<PERIOD>\2', protected_text)
+    
+    # Handle citations like (Smith et al. 2020)
+    protected_text = re.sub(r'\bet al\. (\d{4})\)', r'et al<PERIOD> \1)', protected_text)
+    
+    # Split on sentence-ending punctuation followed by whitespace and capital letter
+    # or end of string
+    sentence_pattern = r'[.!?]+(?:\s+(?=[A-Z])|$)'
+    sentences = re.split(sentence_pattern, protected_text)
+    
+    # Clean up and restore periods
+    cleaned_sentences = []
+    for sentence in sentences:
+        sentence = sentence.replace('<PERIOD>', '.').strip()
+        if sentence:  # Only add non-empty sentences
+            cleaned_sentences.append(sentence)
+    
+    return cleaned_sentences
 
 class ResearchPaperRAG:
     def __init__(self, api_key: str, qdrant_url: str, qdrant_api_key: str, chunk_size: int = 600, overlap: int = 50):
@@ -208,7 +222,7 @@ class ResearchPaperRAG:
         return 'Other'
 
     def chunk_text(self, pages_text: List[Dict]) -> List[ResearchChunk]:
-        """Split text into chunks with fallback for NLTK."""
+        """Split text into chunks using regex sentence tokenization."""
         chunks = []
         for page_data in pages_text:
             text = page_data['text']
@@ -218,14 +232,8 @@ class ResearchPaperRAG:
             if not text.strip():
                 continue
             
-            # Try to use NLTK sentence tokenizer, fallback to simple splitting
-            try:
-                sentences = nltk.sent_tokenize(text)
-            except Exception as e:
-                self.logger.warning(f"NLTK sentence tokenization failed: {e}. Using simple splitting.")
-                # Simple sentence splitting fallback
-                sentences = re.split(r'[.!?]+', text)
-                sentences = [s.strip() for s in sentences if s.strip()]
+            # Use regex sentence tokenization
+            sentences = regex_sentence_tokenize(text)
             
             current_chunk = ""
             
