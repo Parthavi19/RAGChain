@@ -14,7 +14,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize RAG (will be set after file upload)
 rag = None
-API_KEY = "AIzaSyDw-MBI6oRRLNGEz8LksrgkPnAj0vSZeV4"                                   
+API_KEY = os.environ.get('GOOGLE_API_KEY', "AIzaSyDw-MBI6oRRLNGEz8LksrgkPnAj0vSZeV4")                                   
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -74,5 +74,12 @@ def results():
     """Render results page (for manual navigation, if needed)."""
     return render_template('results.html')
 
+# Health check endpoint for Cloud Run
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint."""
+    return jsonify({'status': 'healthy'}), 200
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    # For local development only
+    app.run(host='0.0.0.0', port=8080, debug=True)
