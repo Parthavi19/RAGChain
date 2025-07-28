@@ -14,7 +14,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize RAG (will be set after file upload)
 rag = None
-API_KEY = os.environ.get('GOOGLE_API_KEY', "AIzaSyDw-MBI6oRRLNGEz8LksrgkPnAj0vSZeV4")                                   
+API_KEY = os.environ.get('GOOGLE_API_KEY', "AIzaSyAVzwqMt0edserFCtiGHlb5g2iOkxZf2SA")                                   
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
